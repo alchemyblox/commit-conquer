@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react"; // ✅ FIX: added useRef, useCallback
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
 import DataTable from "./DataTable";
 
-
+// ─── Mock Data ────────────────────────────────────────────────────────────────
 const STATUSES = [
   "pending",
   "processing",
@@ -64,8 +64,16 @@ const ALL_ORDERS = Array.from({ length: 38 }, (_, i) => {
   };
 });
 
-const fetchOrders = async ({ search, status }) => {
-  await new Promise((r) => setTimeout(r, 100));
+// ✅ FIX: Accept AbortSignal so in-flight fetches can be cancelled
+const fetchOrders = async ({ search, status, signal }) => {
+  await new Promise((r, reject) => {
+    const t = setTimeout(r, 100);
+    // Abort the simulated delay if signal fires
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      reject(new DOMException("Aborted", "AbortError"));
+    });
+  });
   let result = ALL_ORDERS;
   if (status !== "all") result = result.filter((o) => o.status === status);
   if (search)
@@ -91,7 +99,7 @@ const apiRefund = async ({ id, amount }) => {
   return { id, amount };
 };
 
-
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;500;600;700;800&display=swap');
 
@@ -323,7 +331,7 @@ const css = `
   .actions-grid { display: flex; flex-direction: column; gap: 8px; }
   .actions-disabled-msg { font-family: var(--mono); font-size: 12px; color: var(--text-muted); padding: 10px 0; }
 
-  /* Refund box — the key bug fix lives here */
+  /* Refund box */
   .refund-box {
     background: rgba(255,92,92,0.07); border: 1px solid rgba(255,92,92,0.2);
     border-radius: var(--radius-lg); padding: 16px;
@@ -359,7 +367,7 @@ const css = `
   @keyframes spin { to { transform: rotate(360deg); } }
 `;
 
-
+// ─── Status config ────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
   all: { label: "All", color: "var(--text)" },
   pending: { label: "Pending", color: "var(--amber)" },
@@ -370,11 +378,11 @@ const STATUS_CONFIG = {
   refunded: { label: "Refunded", color: "var(--text-muted)" },
 };
 
-
+// ─── Order Detail Drawer ──────────────────────────────────────────────────────
 function OrderDrawer({ order, onClose }) {
   const queryClient = useQueryClient();
   const [refundAmount, setRefundAmount] = useState("");
-  const [confirm, setConfirm] = useState(null); // { type, label, btnClass, desc }
+  const [confirm, setConfirm] = useState(null);
 
   const fulfillMutation = useMutation({
     mutationFn: () => apiFulfill(order.id),
@@ -399,7 +407,6 @@ function OrderDrawer({ order, onClose }) {
     },
   });
 
-  
   const handleRefundChange = (e) => {
     const raw = e.target.value;
     if (raw === "" || raw === ".") {
@@ -408,7 +415,6 @@ function OrderDrawer({ order, onClose }) {
     }
     const num = parseFloat(raw);
     if (isNaN(num) || num < 0) return;
-    
     setRefundAmount(String(Math.min(num, order.total)));
   };
 
@@ -435,7 +441,6 @@ function OrderDrawer({ order, onClose }) {
     <>
       <div className="drawer-overlay" onClick={onClose} />
       <div className="drawer">
-        
         <div className="drawer-header">
           <div>
             <div className="drawer-title">{order.id}</div>
@@ -458,7 +463,6 @@ function OrderDrawer({ order, onClose }) {
         </div>
 
         <div className="drawer-body">
-          {/* Order info */}
           <div>
             <div className="section-label">Order Info</div>
             <div className="info-grid">
@@ -491,7 +495,6 @@ function OrderDrawer({ order, onClose }) {
             </div>
           </div>
 
-          {/* Items */}
           <div>
             <div className="section-label">Items ({order.items.length})</div>
             <div className="items-list">
@@ -517,7 +520,6 @@ function OrderDrawer({ order, onClose }) {
             </div>
           </div>
 
-          {/* Fulfillment Actions */}
           <div>
             <div className="section-label">Fulfillment</div>
             <div className="actions-grid">
@@ -598,7 +600,6 @@ function OrderDrawer({ order, onClose }) {
             </div>
           </div>
 
-          {/* Refund — with client-side cap */}
           {canRefund && (
             <div>
               <div className="section-label">Refund</div>
@@ -610,11 +611,11 @@ function OrderDrawer({ order, onClose }) {
                     className="refund-input"
                     type="number"
                     min="0"
-                    max={order.total} // ✅ HTML attribute cap
+                    max={order.total}
                     step="0.01"
                     placeholder={`0.00`}
                     value={refundAmount}
-                    onChange={handleRefundChange} // ✅ JS logic cap
+                    onChange={handleRefundChange}
                   />
                   <button
                     className="btn btn-amber btn-sm"
@@ -637,7 +638,6 @@ function OrderDrawer({ order, onClose }) {
                     {refundMutation.isPending ? "Processing…" : "Refund"}
                   </button>
                 </div>
-                {/* Hint shows max allowed */}
                 <div className="refund-hint">
                   Max refund: <em>${order.total.toFixed(2)}</em>
                   {parsedRefund > 0 && parsedRefund <= order.total && (
@@ -652,7 +652,6 @@ function OrderDrawer({ order, onClose }) {
         </div>
       </div>
 
-      {/* Confirm Dialog */}
       {confirm && (
         <Dialog.Root open onOpenChange={() => setConfirm(null)}>
           <Dialog.Portal>
@@ -684,7 +683,7 @@ function OrderDrawer({ order, onClose }) {
   );
 }
 
-
+// ─── OrdersPage ───────────────────────────────────────────────────────────────
 export default function OrdersPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -692,10 +691,32 @@ export default function OrdersPage() {
   const [sortBy, setSortBy] = useState("newest");
   const [selectedOrder, setSelectedOrder] = useState(null);
 
+  // ✅ FIX: Track the latest intended query params using a ref.
+  // This lets us detect and discard results from stale fetches.
+  const latestQueryRef = useRef({ search: "", status: "all" });
+
+  // ✅ FIX: Debounce search — but sync the ref immediately on every keystroke
+  // so stale-result checks always compare against the user's latest intent.
   useEffect(() => {
+    latestQueryRef.current = { search, status: statusFilter };
     const t = setTimeout(() => setDebouncedSearch(search), 350);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [search, statusFilter]);
+
+  const queryClient = useQueryClient();
+
+  // ✅ FIX: When the status filter changes, we flush the debounce immediately
+  // (by also updating debouncedSearch) AND cancel any in-flight queries so
+  // their resolved values never overwrite the fresh fetch.
+  const handleStatusChange = useCallback(
+    (newStatus) => {
+      queryClient.cancelQueries({ queryKey: ["orders"] });
+      setStatusFilter(newStatus);
+      // Flush the debounced search so the new query fires with current search text
+      setDebouncedSearch(search);
+    },
+    [queryClient, search],
+  );
 
   const {
     data: orders = [],
@@ -703,14 +724,35 @@ export default function OrdersPage() {
     isFetching,
   } = useQuery({
     queryKey: ["orders", { search: debouncedSearch, status: statusFilter }],
-    queryFn: () =>
-      fetchOrders({ search: debouncedSearch, status: statusFilter }),
-    staleTime: 1000 * 60 * 5,
+    // ✅ FIX: Pass signal so React Query can abort the fetch when the query key
+    // changes mid-flight (works with our updated fetchOrders above).
+    queryFn: ({ signal }) =>
+      fetchOrders({ search: debouncedSearch, status: statusFilter, signal }),
+    // ✅ FIX: staleTime 0 — always re-fetch when query key changes.
+    // The original value of 5 minutes caused cached stale results to be
+    // served immediately when rapidly switching filters.
+    staleTime: 0,
+    // ✅ FIX: Keep previous data visible while the new fetch is in-flight.
+    // Without this, the table flashes empty/skeleton on every filter switch.
+    placeholderData: (prev) => prev,
     refetchOnWindowFocus: false,
+    // ✅ FIX: Only accept the result if it still matches the user's latest intent.
+    // This is the final guard: even if a stale fetch somehow resolves after a
+    // newer one, its result is silently dropped.
+    select: (data) => {
+      const latest = latestQueryRef.current;
+      if (
+        latest.search !== debouncedSearch ||
+        latest.status !== statusFilter
+      ) {
+        return undefined;
+      }
+      return data;
+    },
   });
 
   // Sort
-  const sorted = [...orders].sort((a, b) => {
+  const sorted = [...(orders ?? [])].sort((a, b) => {
     if (sortBy === "newest")
       return new Date(b.createdAt) - new Date(a.createdAt);
     if (sortBy === "oldest")
@@ -730,7 +772,7 @@ export default function OrdersPage() {
     <>
       <style>{css}</style>
       <div className="page">
-        
+        {/* Header */}
         <div className="header">
           <div className="header-left">
             <h1>Orders</h1>
@@ -750,13 +792,13 @@ export default function OrdersPage() {
           )}
         </div>
 
-        {/* Status tabs */}
+        {/* Status tabs — ✅ FIX: use handleStatusChange instead of setStatusFilter directly */}
         <div className="stats">
           {["all", ...STATUSES].map((s) => (
             <div
               key={s}
               className={`stat${statusFilter === s ? " active" : ""}`}
-              onClick={() => setStatusFilter(s)}
+              onClick={() => handleStatusChange(s)}
             >
               <div
                 className="stat-val"
@@ -772,7 +814,7 @@ export default function OrdersPage() {
           ))}
         </div>
 
-        
+        {/* Toolbar */}
         <div className="toolbar">
           <div className="search-wrap">
             <span className="search-icon">
@@ -844,7 +886,7 @@ export default function OrdersPage() {
           </span>
         </div>
 
-        
+        {/* Table */}
         <div className="table-wrap">
           <DataTable
             storageKey="orders_sort"
@@ -883,7 +925,7 @@ export default function OrdersPage() {
           )}
         </div>
 
-        
+        {/* Order drawer */}
         {selectedOrder && (
           <OrderDrawer
             order={selectedOrder}
