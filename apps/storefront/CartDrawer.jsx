@@ -1,10 +1,8 @@
-
-
 import { useCartState, useCartDispatch } from "./Layout";
 import { useNavigate } from "react-router-dom";
 
 export default function CartDrawer() {
-  const cart     = useCartState();
+  const cart = useCartState();
   const dispatch = useCartDispatch();
   const navigate = useNavigate();
 
@@ -69,15 +67,17 @@ function CartItem({ item }) {
         onError={(e) => { e.target.src = "https://placehold.co/80x96?text=img"; }} />
       <div style={{ flex: 1 }}>
         <p style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>{item.title}</p>
-        {item.size  && <p style={s.meta}>Size: {item.size}</p>}
+        {item.size && <p style={s.meta}>Size: {item.size}</p>}
         {item.color && <p style={s.meta}>Color: {item.color}</p>}
         <p style={{ fontWeight: 700, fontSize: 14, marginTop: 4 }}>
           ${(item.price * item.quantity).toFixed(2)}
         </p>
         <div style={s.qtyRow}>
-          <button style={s.qtyBtn} onClick={() => dispatch({ type: "UPDATE_QTY", payload: { ...key, quantity: item.quantity - 1 } })}>−</button>
+          {/* FIX: dispatch delta: -1 instead of absolute quantity - 1 */}
+          <button style={s.qtyBtn} onClick={() => dispatch({ type: "UPDATE_QTY", payload: { ...key, delta: -1 } })}>−</button>
           <span style={{ minWidth: 20, textAlign: "center", fontSize: 14, fontWeight: 600 }}>{item.quantity}</span>
-          <button style={s.qtyBtn} onClick={() => dispatch({ type: "UPDATE_QTY", payload: { ...key, quantity: item.quantity + 1 } })}>+</button>
+          {/* FIX: dispatch delta: +1 instead of absolute quantity + 1 */}
+          <button style={s.qtyBtn} onClick={() => dispatch({ type: "UPDATE_QTY", payload: { ...key, delta: +1 } })}>+</button>
           <button style={s.removeBtn} onClick={() => dispatch({ type: "REMOVE_ITEM", payload: key })}>Remove</button>
         </div>
       </div>
