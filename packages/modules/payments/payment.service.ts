@@ -1,5 +1,3 @@
-
-
 import { type PaymentSession, type Refund } from "../../core/types";
 import { generateId, formatMoney, sleep } from "../../core/utils";
 import { eventBus, EVENT } from "../../core/event-bus";
@@ -31,10 +29,9 @@ export interface RefundPaymentInput {
 
 
 
-const sessions = new Map<string, PaymentSession>();
-const refunds  = new Map<string, Refund>();
-
-
+// CHANGE 1: Added _createdAt timestamp to session and refund map types
+const sessions          = new Map<string, PaymentSession & { _createdAt: number }>();
+const refunds           = new Map<string, Refund & { _createdAt: number }>();
 const orderSessionIndex = new Map<string, string>();
 
 
@@ -93,7 +90,8 @@ export const PaymentService = {
       session.data   = { note: "Manual payment — no gateway" };
     }
 
-    sessions.set(session.id, session);
+    // CHANGE 2: Stamp _createdAt on session write
+    sessions.set(session.id, { ...session, _createdAt: Date.now() });
     orderSessionIndex.set(order_id, session.id);
 
     await eventBus.emit(EVENT.PAYMENT_INITIATED, {
@@ -210,7 +208,8 @@ export const PaymentService = {
       created_at: new Date().toISOString(),
     };
 
-    refunds.set(refund.id, refund);
+    // CHANGE 3: Stamp _createdAt on refund write
+    refunds.set(refund.id, { ...refund, _createdAt: Date.now() });
 
     
     const newTotal = alreadyRefunded + amount;
@@ -331,3 +330,33 @@ function _totalRefunded(sessionId: string): number {
     })
     .reduce((sum, r) => sum + r.amount, 0);
 }
+
+
+
+// CHANGE 4: Periodic cleanup to prevent unbounded memory growth
+const SESSION_TTL = 24 * 60 * 60 * 1000;       // 24h — matches Stripe session expiry
+const REFUND_TTL  = 90 * 24 * 60 * 60 * 1000;  // 90 days for dispute resolution
+
+function purgeStaleEntries() {
+  const now = Date.now();
+
+  for (const [id, session] of sessions.entries()) {
+    if (now - session._createdAt > SESSION_TTL) {
+      const orderEntry = [...orderSessionIndex.entries()]
+        .find(([, sid]) => sid === id);
+      if (orderEntry) orderSessionIndex.delete(orderEntry[0]);
+      sessions.delete(id);
+    }
+  }
+
+  for (const [id, refund] of refunds.entries()) {
+    if (now - refund._createdAt > REFUND_TTL) {
+      refunds.delete(id);
+    }
+  }
+}
+
+const _cleanupInterval = setInterval(purgeStaleEntries, 30 * 60 * 1000); // every 30 min
+
+process.on("SIGTERM", () => clearInterval(_cleanupInterval));
+process.on("SIGINT",  () => clearInterval(_cleanupInterval));
